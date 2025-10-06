@@ -63,8 +63,59 @@ new Vue({
             }
             this.scannerAtivo = false;
         },
-        
+
         async buscarProduto(codigo) {
+            this.carregando = true;
+            this.produto = null;
+            this.erro = null;
+            
+            try {
+                // Carrega o arquivo JSON local
+                const response = await fetch('produtos.json');
+                const data = await response.json();
+                
+                // Busca o produto no JSON
+                const produtoEncontrado = data.produtos.find(
+                    produto => produto.codigo_barras === codigo
+                );
+                
+                if (produtoEncontrado) {
+                    this.produto = produtoEncontrado;
+                } else {
+                    // Tenta API externa se não encontrar localmente
+                    await this.buscarNaAPIExterna(codigo);
+                }
+            } catch (error) {
+                this.erro = 'Erro ao buscar produto: ' + error.message;
+            } finally {
+                this.carregando = false;
+            }
+        },
+
+        async buscarNaAPIExterna(codigo) {
+            try {
+                const response = await fetch(`https://world.openfoodfacts.org/api/v0/product/${codigo}.json`);
+                const data = await response.json();
+                
+                if (data.status === 1) {
+                    const product = data.product;
+                    this.produto = {
+                        codigo_barras: codigo,
+                        nome: product.product_name || 'Produto não identificado',
+                        marca: product.brands || 'Marca não informada',
+                        categoria: product.categories || 'Categoria não informada',
+                        preco: 'Consultar',
+                        fonte: 'open_food_facts'
+                    };
+                } else {
+                    this.erro = 'Produto não encontrado na base local nem externa';
+                }
+            } catch (error) {
+                this.erro = 'Produto não encontrado e erro ao consultar API externa';
+            }
+        },
+        
+        async buscarProduto1(codigo) {
             this.carregando = true;
             this.produto = null;
             this.erro = null;
