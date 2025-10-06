@@ -17,9 +17,13 @@
                 <button @click="iniciarScanner" class="btn btn-primary">
                     Iniciar Scanner
                 </button>
+                <button @click="digitarCodigoManual" class="btn" style="background-color: #28a745; color: white; margin-left: 10px;">
+                    Digitar Código
+                </button>
             </div>
 
             <div v-else class="scanner-container">
+                <p>Posicione o código de barras dentro da área demarcada</p>
                 <div id="interactive" class="viewport"></div>
                 <button @click="pararScanner" class="btn btn-danger">
                     Parar Scanner
@@ -28,13 +32,15 @@
 
             <div v-if="codigoLido" class="resultado">
                 <h3>Código Lido: {{ codigoLido }}</h3>
-                <div v-if="produto" class="produto-info">
-                    <h4>{{ produto.nome }}</h4>
-                    <p>Preço: R$ {{ produto.preco }}</p>
-                    <p>Categoria: {{ produto.categoria }}</p>
-                </div>
-                <div v-else-if="carregando" class="loading">
+                <div v-if="carregando" class="loading">
                     Carregando informações...
+                </div>
+                <div v-else-if="produto" class="produto-info">
+                    <h4>{{ produto.nome }}</h4>
+                    <p><strong>Marca:</strong> {{ produto.marca }}</p>
+                    <p><strong>Preço:</strong> R$ {{ typeof produto.preco === 'number' ? produto.preco.toFixed(2) : produto.preco }}</p>
+                    <p><strong>Categoria:</strong> {{ produto.categoria }}</p>
+                    <p v-if="produto.fonte"><small>Fonte: {{ produto.fonte }}</small></p>
                 </div>
                 <div v-else class="erro">
                     Produto não encontrado

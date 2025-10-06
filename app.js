@@ -5,61 +5,105 @@ new Vue({
         codigoLido: null,
         produto: null,
         carregando: false,
-        erro: null
+        erro: null,
+        quaggaInicializado: false
     },
     methods: {
-        iniciarScanner() {
-            this.scannerAtivo = true;
-            this.codigoLido = null;
-            this.produto = null;
-            this.erro = null;
-            
-            // Inicializar QuaggaJS
-            Quagga.init({
-                inputStream: {
-                    name: "Live",
-                    type: "LiveStream",
-                    target: document.querySelector('#interactive'),
-                    constraints: {
-                        width: 640,
-                        height: 480,
-                        facingMode: "environment" // Usa a câmera traseira
-                    }
-                },
-                decoder: {
-                    readers: [
-                        "code_128_reader",
-                        "ean_reader",
-                        "ean_8_reader",
-                        "code_39_reader",
-                        "upc_reader",
-                        "upc_e_reader"
-                    ]
-                }
-            }, (err) => {
-                if (err) {
-                    this.erro = 'Erro ao inicializar scanner: ' + err;
-                    console.error(err);
+        async iniciarScanner() {
+            try {
+                this.scannerAtivo = true;
+                this.codigoLido = null;
+                this.produto = null;
+                this.erro = null;
+                
+                // Verificar se há permissão de câmera
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    this.erro = 'Câmera não suportada neste dispositivo';
+                    this.scannerAtivo = false;
                     return;
                 }
-                
+
+                // Configuração otimizada para mobile
+                const config = {
+                    inputStream: {
+                        name: "Live",
+                        type: "LiveStream",
+                        target: document.querySelector('#interactive'),
+                        constraints: {
+                            width: { min: 640, ideal: 1280, max: 1920 },
+                            height: { min: 480, ideal: 720, max: 1080 },
+                            aspectRatio: { ideal: 1.333 },
+                            facingMode: "environment"
+                        },
+                        area: {
+                            top: "0%",
+                            right: "0%",
+                            left: "0%",
+                            bottom: "0%"
+                        }
+                    },
+                    locator: {
+                        patchSize: "medium",
+                        halfSample: true
+                    },
+                    numOfWorkers: navigator.hardwareConcurrency || 4,
+                    decoder: {
+                        readers: [
+                            "ean_reader",
+                            "ean_8_reader",
+                            "code_128_reader",
+                            "upc_reader",
+                            "upc_e_reader"
+                        ]
+                    },
+                    locate: true,
+                    frequency: 10
+                };
+
+                // Inicializar QuaggaJS
+                await new Promise((resolve, reject) => {
+                    Quagga.init(config, (err) => {
+                        if (err) {
+                            reject(err);
+                            return;
+                        }
+                        this.quaggaInicializado = true;
+                        resolve();
+                    });
+                });
+
                 Quagga.start();
-                
+
                 // Detectar código de barras
                 Quagga.onDetected((data) => {
                     if (data.codeResult && data.codeResult.code) {
-                        this.codigoLido = data.codeResult.code;
-                        this.buscarProduto(this.codigoLido);
-                        Quagga.stop();
-                        this.scannerAtivo = false;
+                        const codigo = data.codeResult.code;
+                        console.log('Código detectado:', codigo);
+                        this.codigoLido = codigo;
+                        this.buscarProduto(codigo);
+                        this.pararScanner();
                     }
                 });
-            });
+
+                // Timeout para evitar travamentos
+                setTimeout(() => {
+                    if (this.scannerAtivo && !this.codigoLido) {
+                        this.erro = 'Nenhum código detectado. Tente novamente.';
+                        this.pararScanner();
+                    }
+                }, 30000);
+
+            } catch (error) {
+                console.error('Erro ao inicializar scanner:', error);
+                this.erro = 'Erro ao acessar a câmera: ' + error.message;
+                this.scannerAtivo = false;
+            }
         },
         
         pararScanner() {
-            if (Quagga) {
+            if (this.quaggaInicializado) {
                 Quagga.stop();
+                this.quaggaInicializado = false;
             }
             this.scannerAtivo = false;
         },
@@ -70,12 +114,15 @@ new Vue({
             this.erro = null;
             
             try {
+                // Limpar código (remover caracteres não numéricos)
+                codigo = codigo.toString().replace(/[^\d]/g, '');
+                
                 // Carrega o arquivo JSON local
                 const response = await fetch('produtos.json');
-                const data = await response.json();
+                const produtos = await response.json();
                 
-                // Busca o produto no JSON
-                const produtoEncontrado = data.produtos.find(
+                // Busca o produto no JSON - CORREÇÃO AQUI
+                const produtoEncontrado = produtos.find(
                     produto => produto.codigo_barras === codigo
                 );
                 
@@ -86,6 +133,7 @@ new Vue({
                     await this.buscarNaAPIExterna(codigo);
                 }
             } catch (error) {
+                console.error('Erro ao buscar produto:', error);
                 this.erro = 'Erro ao buscar produto: ' + error.message;
             } finally {
                 this.carregando = false;
@@ -105,62 +153,25 @@ new Vue({
                         marca: product.brands || 'Marca não informada',
                         categoria: product.categories || 'Categoria não informada',
                         preco: 'Consultar',
+                        imagem: product.image_url || '',
                         fonte: 'open_food_facts'
                     };
                 } else {
                     this.erro = 'Produto não encontrado na base local nem externa';
                 }
             } catch (error) {
+                console.error('Erro na API externa:', error);
                 this.erro = 'Produto não encontrado e erro ao consultar API externa';
             }
         },
-        
-        async buscarProduto1(codigo) {
-            this.carregando = true;
-            this.produto = null;
-            this.erro = null;
-            
-            try {
-                const response = await fetch('api/processar_codigo.php', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ codigo_barras: codigo })
-                });
-                
-                const data = await response.json();
-                
-                if (data.success && data.produto) {
-                    this.produto = data.produto;
-                } else {
-                    this.erro = data.message || 'Produto não encontrado';
-                }
-            } catch (error) {
-                this.erro = 'Erro ao buscar produto: ' + error.message;
-            } finally {
-                this.carregando = false;
+
+        // Método alternativo para digitar código manualmente
+        digitarCodigoManual() {
+            const codigo = prompt('Digite o código de barras:');
+            if (codigo && codigo.trim() !== '') {
+                this.codigoLido = codigo.trim();
+                this.buscarProduto(this.codigoLido);
             }
-        },
-        
-        // Método alternativo para dispositivos móveis
-        capturarImagem() {
-            const input = document.createElement('input');
-            input.type = 'file';
-            input.accept = 'image/*';
-            input.capture = 'camera'; // Para mobile
-            
-            input.onchange = (e) => {
-                const file = e.target.files[0];
-                this.processarImagem(file);
-            };
-            
-            input.click();
-        },
-        
-        processarImagem(file) {
-            // Implementação para processar imagem estática
-            // Pode usar Quagga.decodeSingle para processar a imagem
         }
     },
     
