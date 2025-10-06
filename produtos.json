@@ -1,0 +1,34 @@
+[
+    {
+        "codigo_barras": "7891000315507",
+        "nome": "Coca-Cola Lata 350ml",
+        "marca": "Coca-Cola",
+        "categoria": "Bebidas",
+        "preco": 4.50,
+        "imagem": ""
+    },
+    {
+        "codigo_barras": "7891910000197",
+        "nome": "Arroz Tio João 1kg",
+        "marca": "Tio João",
+        "categoria": "Alimentos",
+        "preco": 6.99,
+        "imagem": ""
+    },
+    {
+        "codigo_barras": "7891991001283",
+        "nome": "Sabonete Dove 90g",
+        "marca": "Dove",
+        "categoria": "Higiene",
+        "preco": 3.25,
+        "imagem": ""
+    },
+    {
+        "codigo_barras": "9788532643728",
+        "nome": "Hermenêutica, de Lawrence K. Schmidt",
+        "marca": "Editora Vozes",
+        "categoria": "Livro",
+        "preco": 59.99,
+        "imagem": ""
+    }
+]
