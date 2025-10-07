@@ -3,56 +3,92 @@
 
 <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Leitor de Código de Barras</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Leitor de Código de Barras Pro</title>
     <style>
-        body {
+        * {
+            box-sizing: border-box;
             margin: 0;
-            padding: 20px;
-            font-family: Arial, sans-serif;
+            padding: 0;
+        }
+        
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: #121212;
+            color: white;
+            padding: 16px;
             text-align: center;
-            background: #f5f5f5;
+        }
+        
+        h2 {
+            margin: 10px 0 16px;
         }
         
         #reader-container {
             position: relative;
-            width: 320px;
-            height: 240px;
+            width: 100%;
+            max-width: 400px;
+            height: 300px;
             margin: 0 auto 20px;
-            border: 2px solid #333;
+            border: 2px solid #444;
+            border-radius: 12px;
             overflow: hidden;
-            border-radius: 8px;
+            background: #000;
+        }
+        
+        #interactive {
+            width: 100%;
+            height: 100%;
+            transform-origin: top left;
         }
         
         #result {
-            margin: 15px 0;
+            min-height: 28px;
+            margin: 16px 0;
             font-size: 18px;
-            min-height: 24px;
-            color: #2c7;
+            color: #4CAF50;
+            word-break: break-all;
+        }
+        
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 16px;
         }
         
         .btn {
-            padding: 10px 20px;
-            margin: 5px;
-            font-size: 16px;
+            padding: 10px 16px;
+            font-size: 15px;
             border: none;
-            border-radius: 6px;
+            border-radius: 8px;
+            background: #333;
+            color: white;
             cursor: pointer;
+            transition: background 0.2s;
         }
         
-        #startBtn {
-            background: #4CAF50;
-            color: white;
+        .btn:hover {
+            background: #555;
         }
         
-        #stopBtn {
-            background: #f44336;
-            color: white;
-        }
-        
-        #flashBtn {
+        .btn.active {
             background: #ff9800;
-            color: white;
+        }
+        
+        .btn.danger {
+            background: #f44336;
+        }
+        
+        .btn.success {
+            background: #4CAF50;
+        }
+        
+        .zoom-controls {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
         }
         
         .hidden {
@@ -62,111 +98,165 @@
 </head>
 
 <body>
-    <h2>Leitor de Código de Barras</h2>
+    <h2>Leitor de Código de Barras Pro</h2>
 
     <div id="reader-container">
-        <div id="interactive" style="width:100%; height:100%;"></div>
+        <div id="interactive"></div>
     </div>
 
     <div id="result">Aponte para um código de barras</div>
 
-    <button id="startBtn" class="btn">Ligar Leitura</button>
-    <button id="stopBtn" class="btn hidden">Desligar Leitura</button>
-    <button id="flashBtn" class="btn hidden">Ligar Flash</button>
+    <div class="controls">
+        <button id="startBtn" class="btn success">Iniciar Leitura</button>
+        <button id="stopBtn" class="btn danger hidden">Parar</button>
+        <button id="flashBtn" class="btn hidden">Flash: OFF</button>
+    </div>
+
+    <div class="zoom-controls">
+        <button id="zoomOut" class="btn hidden">– Zoom</button>
+        <button id="zoomIn" class="btn hidden">+ Zoom</button>
+    </div>
 
     <!-- QuaggaJS -->
     <script src="https://unpkg.com/quagga@0.12.1/dist/quagga.min.js"></script>
     <script>
         let stream = null;
         let flashEnabled = false;
-        let flashTrack = null;
+        let zoomLevel = 1.0;
+        const MAX_ZOOM = 3.0;
+        const ZOOM_STEP = 0.25;
 
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
         const flashBtn = document.getElementById('flashBtn');
+        const zoomInBtn = document.getElementById('zoomIn');
+        const zoomOutBtn = document.getElementById('zoomOut');
         const resultDiv = document.getElementById('result');
+        const interactiveDiv = document.getElementById('interactive');
 
-        // Função para parar o Quagga e a stream
+        function applyZoom() {
+            interactiveDiv.style.transform = `scale(${zoomLevel})`;
+            interactiveDiv.style.width = `${100 / zoomLevel}%`;
+            interactiveDiv.style.height = `${100 / zoomLevel}%`;
+        }
+
         function stopReader() {
             Quagga.stop();
             if (stream) {
                 stream.getTracks().forEach(track => track.stop());
                 stream = null;
             }
+            zoomLevel = 1.0;
+            applyZoom();
             startBtn.classList.remove('hidden');
             stopBtn.classList.add('hidden');
             flashBtn.classList.add('hidden');
+            zoomInBtn.classList.add('hidden');
+            zoomOutBtn.classList.add('hidden');
             resultDiv.innerText = "Leitura desligada.";
         }
 
-        // Função para iniciar o leitor
-        function startReader() {
-            resultDiv.innerText = "Iniciando...";
+        async function startReader() {
+            resultDiv.innerText = "Iniciando câmera...";
 
-            Quagga.init({
-                inputStream: {
-                    name: "Live",
-                    type: "LiveStream",
-                    target: document.querySelector('#interactive'),
-                    constraints: {
-                        width: {
-                            ideal: 640
-                        },
-                        height: {
-                            ideal: 480
-                        },
-                        facingMode: "environment"
+            // Tenta usar alta resolução
+            const constraints = {
+                audio: false,
+                video: {
+                    facingMode: "environment",
+                    width: {
+                        ideal: 1280,
+                        min: 640
+                    },
+                    height: {
+                        ideal: 720,
+                        min: 480
+                    },
+                    advanced: [{
+                        focusMode: "continuous"
+                    }, {
+                        zoom: true
+                    }]
+                }
+            };
+
+            try {
+                // Solicita acesso à câmera manualmente para obter controle do stream
+                const userStream = await navigator.mediaDevices.getUserMedia(constraints);
+                stream = userStream;
+
+                // Configura o Quagga com o stream existente
+                Quagga.init({
+                    inputStream: {
+                        name: "Live",
+                        type: "LiveStream",
+                        target: interactiveDiv,
+                        constraints: {
+                            deviceId: stream.getVideoTracks()[0].getSettings().deviceId
+                        }
+                    },
+                    decoder: {
+                        readers: [
+                            "ean_reader",
+                            "ean_13_reader",
+                            "code_128_reader",
+                            "code_39_reader",
+                            "upc_reader",
+                            "codabar_reader"
+                        ]
+                    },
+                    locator: {
+                        patchSize: "medium",
+                        halfSample: true
+                    },
+                    numOfWorkers: 2,
+                    frequency: 10 // Ajusta a frequência de análise
+                }, async(err) => {
+                    if (err) {
+                        console.error("Erro no Quagga:", err);
+                        resultDiv.innerText = "Erro ao iniciar leitor.";
+                        stream.getTracks().forEach(t => t.stop());
+                        return;
                     }
-                },
-                decoder: {
-                    readers: [
-                        "ean_reader",
-                        "ean_13_reader",
-                        "code_128_reader",
-                        "code_39_reader",
-                        "upc_reader"
-                    ]
-                }
-            }, async function(err) {
-                if (err) {
-                    console.error("Erro ao iniciar:", err);
-                    resultDiv.innerText = "Erro ao acessar a câmera.";
-                    return;
-                }
 
-                // Captura a stream para controle do flash
-                const video = document.querySelector('video');
-                if (video && video.srcObject) {
-                    stream = video.srcObject;
+                    Quagga.start();
 
-                    // Verifica se o flash é suportado
+                    // Mostra controles
+                    startBtn.classList.add('hidden');
+                    stopBtn.classList.remove('hidden');
+                    zoomInBtn.classList.remove('hidden');
+                    zoomOutBtn.classList.remove('hidden');
+
+                    // Verifica suporte a flash
                     const videoTrack = stream.getVideoTracks()[0];
                     if (videoTrack && 'torch' in videoTrack.getCapabilities()) {
                         flashBtn.classList.remove('hidden');
                     }
-                }
 
-                Quagga.start();
-                startBtn.classList.add('hidden');
-                stopBtn.classList.remove('hidden');
-                resultDiv.innerText = "Aponte para um código de barras";
-            });
+                    resultDiv.innerText = "Aponte para um código de barras";
+                });
+
+            } catch (err) {
+                console.error("Erro ao acessar câmera:", err);
+                resultDiv.innerText = "Câmera não acessível. Verifique permissões.";
+            }
         }
 
-        // Evento de detecção
-        Quagga.onDetected(function(data) {
+        Quagga.onDetected((data) => {
             const code = data.codeResult.code;
-            resultDiv.innerText = "Código: " + code;
+            resultDiv.innerText = "✅ Código: " + code;
             console.log("Código detectado:", code);
+
+            // Opcional: parar após detectar
+            // stopReader();
         });
 
-        // Botões
+        // Eventos dos botões
         startBtn.addEventListener('click', startReader);
         stopBtn.addEventListener('click', stopReader);
 
         flashBtn.addEventListener('click', async() => {
             if (!stream) return;
-
             const videoTrack = stream.getVideoTracks()[0];
             if (!videoTrack || !('torch' in videoTrack.getCapabilities())) return;
 
@@ -177,12 +267,30 @@
                         torch: flashEnabled
                     }]
                 });
-                flashBtn.textContent = flashEnabled ? "Desligar Flash" : "Ligar Flash";
+                flashBtn.textContent = `Flash: ${flashEnabled ? 'ON' : 'OFF'}`;
+                flashBtn.classList.toggle('active', flashEnabled);
             } catch (e) {
-                console.error("Erro ao controlar o flash:", e);
-                resultDiv.innerText = "Flash não suportado neste dispositivo.";
+                console.error("Flash não suportado:", e);
+                resultDiv.innerText = "Flash não disponível.";
             }
         });
+
+        zoomInBtn.addEventListener('click', () => {
+            if (zoomLevel < MAX_ZOOM) {
+                zoomLevel = Math.round((zoomLevel + ZOOM_STEP) * 100) / 100;
+                applyZoom();
+            }
+        });
+
+        zoomOutBtn.addEventListener('click', () => {
+            if (zoomLevel > 1.0) {
+                zoomLevel = Math.round((zoomLevel - ZOOM_STEP) * 100) / 100;
+                applyZoom();
+            }
+        });
+
+        // Inicializa zoom
+        applyZoom();
     </script>
 </body>
 
