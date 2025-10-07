@@ -8,39 +8,101 @@
     <style>
         body {
             margin: 0;
-            padding: 0;
+            padding: 20px;
             font-family: Arial, sans-serif;
             text-align: center;
+            background: #f5f5f5;
         }
         
-        #interactive.viewport {
+        #reader-container {
             position: relative;
-            width: 50px;
-            height: 100vh;
+            width: 320px;
+            height: 240px;
+            margin: 0 auto 20px;
+            border: 2px solid #333;
             overflow: hidden;
+            border-radius: 8px;
         }
         
         #result {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            background: rgba(0, 0, 0, 0.7);
-            color: white;
-            padding: 10px;
+            margin: 15px 0;
             font-size: 18px;
-            z-index: 10;
+            min-height: 24px;
+            color: #2c7;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            margin: 5px;
+            font-size: 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+        
+        #startBtn {
+            background: #4CAF50;
+            color: white;
+        }
+        
+        #stopBtn {
+            background: #f44336;
+            color: white;
+        }
+        
+        #flashBtn {
+            background: #ff9800;
+            color: white;
+        }
+        
+        .hidden {
+            display: none;
         }
     </style>
 </head>
 
 <body>
-    <div id="interactive" class="viewport"></div>
-    <div id="result">Aponte a câmera para um código de barras</div>
+    <h2>Leitor de Código de Barras</h2>
 
-    <!-- Inclua o QuaggaJS -->
+    <div id="reader-container">
+        <div id="interactive" style="width:100%; height:100%;"></div>
+    </div>
+
+    <div id="result">Aponte para um código de barras</div>
+
+    <button id="startBtn" class="btn">Ligar Leitura</button>
+    <button id="stopBtn" class="btn hidden">Desligar Leitura</button>
+    <button id="flashBtn" class="btn hidden">Ligar Flash</button>
+
+    <!-- QuaggaJS -->
     <script src="https://unpkg.com/quagga@0.12.1/dist/quagga.min.js"></script>
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
+        let stream = null;
+        let flashEnabled = false;
+        let flashTrack = null;
+
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const flashBtn = document.getElementById('flashBtn');
+        const resultDiv = document.getElementById('result');
+
+        // Função para parar o Quagga e a stream
+        function stopReader() {
+            Quagga.stop();
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+            }
+            startBtn.classList.remove('hidden');
+            stopBtn.classList.add('hidden');
+            flashBtn.classList.add('hidden');
+            resultDiv.innerText = "Leitura desligada.";
+        }
+
+        // Função para iniciar o leitor
+        function startReader() {
+            resultDiv.innerText = "Iniciando...";
+
             Quagga.init({
                 inputStream: {
                     name: "Live",
@@ -48,42 +110,78 @@
                     target: document.querySelector('#interactive'),
                     constraints: {
                         width: {
-                            min: 640
+                            ideal: 640
                         },
                         height: {
-                            min: 480
+                            ideal: 480
                         },
-                        facingMode: "environment" // usa a câmera traseira em celulares
+                        facingMode: "environment"
                     }
                 },
                 decoder: {
                     readers: [
-                        "ean_reader", // para EAN-13, EAN-8
-                        "ean_8_reader",
+                        "ean_reader",
                         "ean_13_reader",
                         "code_128_reader",
                         "code_39_reader",
                         "upc_reader"
                     ]
                 }
-            }, function(err) {
+            }, async function(err) {
                 if (err) {
-                    console.error("Erro ao iniciar o Quagga:", err);
-                    document.getElementById('result').innerText = "Erro ao acessar a câmera.";
+                    console.error("Erro ao iniciar:", err);
+                    resultDiv.innerText = "Erro ao acessar a câmera.";
                     return;
                 }
-                console.log("Quagga iniciado com sucesso");
+
+                // Captura a stream para controle do flash
+                const video = document.querySelector('video');
+                if (video && video.srcObject) {
+                    stream = video.srcObject;
+
+                    // Verifica se o flash é suportado
+                    const videoTrack = stream.getVideoTracks()[0];
+                    if (videoTrack && 'torch' in videoTrack.getCapabilities()) {
+                        flashBtn.classList.remove('hidden');
+                    }
+                }
+
                 Quagga.start();
+                startBtn.classList.add('hidden');
+                stopBtn.classList.remove('hidden');
+                resultDiv.innerText = "Aponte para um código de barras";
             });
+        }
 
-            Quagga.onDetected(function(data) {
-                const code = data.codeResult.code;
-                console.log("Código detectado:", code);
-                document.getElementById('result').innerText = "Código: " + code;
+        // Evento de detecção
+        Quagga.onDetected(function(data) {
+            const code = data.codeResult.code;
+            resultDiv.innerText = "Código: " + code;
+            console.log("Código detectado:", code);
+        });
 
-                // Opcional: parar após detectar (remova se quiser continuar escaneando)
-                // Quagga.stop();
-            });
+        // Botões
+        startBtn.addEventListener('click', startReader);
+        stopBtn.addEventListener('click', stopReader);
+
+        flashBtn.addEventListener('click', async() => {
+            if (!stream) return;
+
+            const videoTrack = stream.getVideoTracks()[0];
+            if (!videoTrack || !('torch' in videoTrack.getCapabilities())) return;
+
+            flashEnabled = !flashEnabled;
+            try {
+                await videoTrack.applyConstraints({
+                    advanced: [{
+                        torch: flashEnabled
+                    }]
+                });
+                flashBtn.textContent = flashEnabled ? "Desligar Flash" : "Ligar Flash";
+            } catch (e) {
+                console.error("Erro ao controlar o flash:", e);
+                resultDiv.innerText = "Flash não suportado neste dispositivo.";
+            }
         });
     </script>
 </body>
